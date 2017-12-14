@@ -109,19 +109,19 @@ public class SpongeSlotPos extends AbstractInventoryProperty<String, Vector2i> i
         private Operator operator;
 
         @Override
-        public SlotPos.Builder value(Object value) {
+        public SlotPos.Builder value(final Object value) {
             this.value = value;
             return this;
         }
 
         @Override
-        public SlotPos.Builder operator(Operator operator) {
+        public SlotPos.Builder operator(final Operator operator) {
             this.operator = operator;
             return this;
         }
 
         @Override
-        public SlotPos.Builder from(SlotPos value) {
+        public SlotPos.Builder from(final SlotPos value) {
             this.value = value.getValue();
             this.operator = value.getOperator();
             return this;

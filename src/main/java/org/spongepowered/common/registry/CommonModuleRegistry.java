@@ -86,6 +86,7 @@ import org.spongepowered.api.item.inventory.ItemStackGenerator;
 import org.spongepowered.api.item.inventory.equipment.EquipmentType;
 import org.spongepowered.api.item.inventory.property.GuiId;
 import org.spongepowered.api.item.inventory.property.SlotPos;
+import org.spongepowered.api.item.inventory.property.StringProperty;
 import org.spongepowered.api.item.merchant.TradeOffer;
 import org.spongepowered.api.item.merchant.TradeOfferGenerator;
 import org.spongepowered.api.item.recipe.crafting.CraftingRecipe;
@@ -163,6 +164,7 @@ import org.spongepowered.common.item.inventory.SpongeItemStackBuilder;
 import org.spongepowered.common.item.inventory.archetype.SpongeInventoryArchetypeBuilder;
 import org.spongepowered.common.item.inventory.generation.SpongeItemStackGenerator;
 import org.spongepowered.common.item.inventory.property.SpongeSlotPos;
+import org.spongepowered.common.item.inventory.property.SpongeStringProperty;
 import org.spongepowered.common.item.merchant.SpongeTradeOfferBuilder;
 import org.spongepowered.common.item.merchant.SpongeTradeOfferGenerator;
 import org.spongepowered.common.item.recipe.crafting.SpongeCraftingRecipeRegistry;
@@ -342,6 +344,7 @@ public final class CommonModuleRegistry {
             .registerBuilderSupplier(EventContextKey.Builder.class, SpongeEventContextKeyBuilder::new)
             .registerBuilderSupplier(Enchantment.Builder.class, SpongeEnchantmentBuilder::new)
             .registerBuilderSupplier(SlotPos.Builder.class, SpongeSlotPos.Builder::new)
+            .registerBuilderSupplier(StringProperty.Builder.class, SpongeStringProperty.Builder::new)
         ;
     }
 
