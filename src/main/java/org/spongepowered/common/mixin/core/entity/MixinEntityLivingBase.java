@@ -181,6 +181,9 @@ public abstract class MixinEntityLivingBase extends MixinEntity implements Livin
         return false; // SHADOWED
     }
     @Shadow public abstract AbstractAttributeMap getAttributeMap();
+    @Shadow public void onKillCommand() {
+        // Non-abstract for MixinEntityArmorStand
+    }
 
     @Override
     public Vector3d getHeadRotation() {
