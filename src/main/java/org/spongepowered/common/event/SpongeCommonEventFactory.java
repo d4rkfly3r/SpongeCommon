@@ -82,6 +82,7 @@ import org.spongepowered.api.event.entity.InteractEntityEvent;
 import org.spongepowered.api.event.entity.ai.SetAITargetEvent;
 import org.spongepowered.api.event.item.inventory.ChangeInventoryEvent;
 import org.spongepowered.api.event.item.inventory.ClickInventoryEvent;
+import org.spongepowered.api.event.item.inventory.CraftItemEvent;
 import org.spongepowered.api.event.item.inventory.InteractInventoryEvent;
 import org.spongepowered.api.event.item.inventory.InteractItemEvent;
 import org.spongepowered.api.event.message.MessageEvent;
@@ -89,10 +90,12 @@ import org.spongepowered.api.item.inventory.Inventory;
 import org.spongepowered.api.item.inventory.InventoryArchetype;
 import org.spongepowered.api.item.inventory.InventoryArchetypes;
 import org.spongepowered.api.item.inventory.ItemStackSnapshot;
+import org.spongepowered.api.item.inventory.crafting.CraftingInventory;
 import org.spongepowered.api.item.inventory.property.SlotIndex;
 import org.spongepowered.api.item.inventory.transaction.SlotTransaction;
 import org.spongepowered.api.item.inventory.type.CarriedInventory;
 import org.spongepowered.api.item.inventory.type.OrderedInventory;
+import org.spongepowered.api.item.recipe.crafting.CraftingRecipe;
 import org.spongepowered.api.text.Text;
 import org.spongepowered.api.text.channel.MessageChannel;
 import org.spongepowered.api.util.Direction;
@@ -106,10 +109,11 @@ import org.spongepowered.common.SpongeImplHooks;
 import org.spongepowered.common.block.BlockUtil;
 import org.spongepowered.common.entity.EntityUtil;
 import org.spongepowered.common.entity.PlayerTracker;
-import org.spongepowered.common.event.tracking.PhaseTracker;
 import org.spongepowered.common.event.tracking.PhaseContext;
 import org.spongepowered.common.event.tracking.PhaseData;
+import org.spongepowered.common.event.tracking.PhaseTracker;
 import org.spongepowered.common.event.tracking.phase.block.BlockPhase.State;
+import org.spongepowered.common.event.tracking.phase.packet.PacketPhaseUtil;
 import org.spongepowered.common.interfaces.IMixinChunk;
 import org.spongepowered.common.interfaces.IMixinContainer;
 import org.spongepowered.common.interfaces.IMixinInventory;
@@ -1020,7 +1024,7 @@ public class SpongeCommonEventFactory {
         return event.isCancelled();
     }
 
-    private static void setSlots(List<SlotTransaction> transactions, Function<SlotTransaction, ItemStackSnapshot> func) {
+    public static void setSlots(List<SlotTransaction> transactions, Function<SlotTransaction, ItemStackSnapshot> func) {
         transactions.forEach(t -> t.getSlot().set(func.apply(t).createStack()));
     }
 
@@ -1088,5 +1092,25 @@ public class SpongeCommonEventFactory {
 
     public static Inventory toInventory(IInventory iinventory) {
         return ((Inventory) iinventory);
+    }
+
+    public static CraftItemEvent.Pre callCraftEventPre(EntityPlayer player, CraftingInventory inventory,
+            SlotTransaction previewTransaction, @Nullable CraftingRecipe recipe, Container container, List<SlotTransaction> transactions) {
+        CraftItemEvent.Pre event = SpongeEventFactory
+                .createCraftItemEventPre(Sponge.getCauseStackManager().getCurrentCause(), inventory, previewTransaction, Optional.ofNullable(recipe), ((Inventory) container), transactions);
+        SpongeImpl.postEvent(event);
+        PacketPhaseUtil.handleSlotRestore(player, container, transactions, event.isCancelled());
+        return event;
+    }
+
+    public static CraftItemEvent.Post callCraftEventPost(EntityPlayer layer, CraftingInventory inventory, Transaction<ItemStackSnapshot> result,
+           @Nullable CraftingRecipe recipe, Container container, List<SlotTransaction> transactions) {
+        CraftItemEvent.Post event = SpongeEventFactory
+                .createCraftItemEventPost(Sponge.getCauseStackManager().getCurrentCause(), result, inventory, Optional.ofNullable(recipe), ((Inventory) container), transactions);
+             SpongeImpl.postEvent(event);
+        ((IMixinContainer) container).setCaptureInventory(false);
+        PacketPhaseUtil.handleSlotRestore(layer, container, transactions, event.isCancelled());
+        ((IMixinContainer) container).setCaptureInventory(true);
+        return event;
     }
 }
