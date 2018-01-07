@@ -112,7 +112,7 @@ public abstract class MixinSlotCrafting extends Slot {
         System.out.print("\n");
 
 
-        CraftItemEvent.Post event = SpongeCommonEventFactory.callCraftEventPost(thePlayer, crafting,
+        CraftItemEvent.Craft event = SpongeCommonEventFactory.callCraftEventPost(thePlayer, crafting,
                 new Transaction<>(empty, ItemStackUtil.snapshotOf(stack)), this.lastRecipe, container, capturedTransactions);
 
         if (event.getCrafted().getCustom().isPresent()) {

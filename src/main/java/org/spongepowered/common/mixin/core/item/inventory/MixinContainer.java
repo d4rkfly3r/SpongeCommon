@@ -326,6 +326,15 @@ public abstract class MixinContainer implements org.spongepowered.api.item.inven
         return result;
     }
 
+    @Redirect(method = "slotClick",
+            at = @At(value = "INVOKE", target = "Lnet/minecraft/inventory/Slot;onTake(Lnet/minecraft/entity/player/EntityPlayer;Lnet/minecraft/item/ItemStack;)Lnet/minecraft/item/ItemStack;", ordinal = 2))
+    private ItemStack redirectOnTakeSwap(Slot slot, EntityPlayer player, ItemStack stack, int slotId, int dragType, ClickType clickTypeIn, EntityPlayer player2) {
+        this.postPreCraftEvent = false;
+        ItemStack result = slot.onTake(player, stack);
+        player.inventory.setInventorySlotContents(dragType, result);
+        this.postPreCraftEvent = true;
+        return result;
+    }
 
     @Override
     public boolean capturingInventory() {
