@@ -142,7 +142,7 @@ public abstract class MixinSlotCrafting extends Slot {
             ((IMixinContainer) container).setCaptureInventory(true);
         }
 
-        capturedTransactions.clear();
+        //capturedTransactions.clear();
 
     }
 }
