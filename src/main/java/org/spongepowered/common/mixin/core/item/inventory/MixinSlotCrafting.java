@@ -53,6 +53,7 @@ import org.spongepowered.common.event.SpongeCommonEventFactory;
 import org.spongepowered.common.interfaces.IMixinContainer;
 import org.spongepowered.common.item.inventory.util.ItemStackUtil;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 
@@ -81,10 +82,10 @@ public abstract class MixinSlotCrafting extends Slot {
     @Inject(method = "onTake", at = @At("HEAD"))
     private void beforeTake(EntityPlayer thePlayer, ItemStack stack, CallbackInfoReturnable<ItemStack> cir) {
         this.lastRecipe = ((CraftingRecipe) CraftingManager.findMatchingRecipe(this.craftMatrix, thePlayer.world));
-        if (((IMixinContainer) thePlayer.openContainer).isCaptureCraftInventory()) {
+        if (((IMixinContainer) thePlayer.openContainer).isShiftCrafting()) {
             ((IMixinContainer) thePlayer.openContainer).detectAndSendChanges(true);
+            ((IMixinContainer) thePlayer.openContainer).setShiftCrafting(false);
         }
-        ((IMixinContainer) thePlayer.openContainer).setCaptureCraftInventory(false);
     }
 
     /**
@@ -95,54 +96,26 @@ public abstract class MixinSlotCrafting extends Slot {
      */
     @Inject(method = "onTake", cancellable = true, at = @At("RETURN"))
     private void afterTake(EntityPlayer thePlayer, ItemStack stack, CallbackInfoReturnable<ItemStack> cir) {
+
+        ((IMixinContainer) thePlayer.openContainer).setCaptureInventory(false);
         System.out.print(stack + " " + (this.lastRecipe == null ? "no recipe" : this.lastRecipe.getId() )  + "\n");
 
         Container container = thePlayer.openContainer;
         CraftingInventory crafting = ((Inventory) container).query(QueryOperationTypes.INVENTORY_TYPE.of(CraftingInventory.class));
-        ItemStackSnapshot empty = ItemStackSnapshot.NONE;
 
         List<SlotTransaction> capturedTransactions = ((IMixinContainer) container).getCapturedTransactions();
-        List<SlotTransaction> craftTransactions = ((IMixinContainer) container).getCapturedCraftTransactions();
 
-        System.out.print("In Post Capture " + capturedTransactions.size() + " " + craftTransactions.size() + "\n");
+
+        System.out.print("In Post Capture " + capturedTransactions.size() + "\n");
         for (SlotTransaction trans : capturedTransactions) {
             Optional<SlotIndex> sp = trans.getSlot().getInventoryProperty(SlotIndex.class);
             System.out.print(sp.map(s -> s.getValue().toString()).orElse("?") + "\t");
         }
         System.out.print("\n");
 
-
         CraftItemEvent.Craft event = SpongeCommonEventFactory.callCraftEventPost(thePlayer, crafting,
-                new Transaction<>(empty, ItemStackUtil.snapshotOf(stack)), this.lastRecipe, container, capturedTransactions);
+                new Transaction<>(ItemStackSnapshot.NONE, ItemStackUtil.snapshotOf(stack)), this.lastRecipe, container, capturedTransactions);
 
-        if (event.getCrafted().getCustom().isPresent()) {
-            // Changed crafting result
-            org.spongepowered.api.item.inventory.ItemStack finalCrafted = event.getCrafted().getFinal().createStack();
-            if (craftTransactions.isEmpty()) { // set item to be thrown out or put on to cursor
-                cir.setReturnValue(((ItemStack) finalCrafted));
-            } else {
-                // or restore SlotTransactions and add items back to inventory
-                ((IMixinContainer) container).setCaptureInventory(false);
-                SpongeCommonEventFactory.setSlots(craftTransactions, Transaction::getOriginal);
-                if (!player.inventory.addItemStackToInventory(((ItemStack) finalCrafted))) {
-                    // if not enough place - drop the items instead
-                    player.dropItem(((ItemStack) finalCrafted), true);
-                }
-                ((IMixinContainer) container).detectAndSendChanges(false);
-                craftTransactions.clear();
-                ((IMixinContainer) container).setCaptureInventory(true);
-
-            }
-        } else if (event.isCancelled() || !event.getCrafted().isValid()) {
-            // restore SlotTransactions when canceled or invalidated
-            ((IMixinContainer) container).setCaptureInventory(false);
-            SpongeCommonEventFactory.setSlots(craftTransactions, Transaction::getOriginal);
-            ((IMixinContainer) container).detectAndSendChanges(false);
-            craftTransactions.clear();
-            ((IMixinContainer) container).setCaptureInventory(true);
-        }
-
-        //capturedTransactions.clear();
-
+        ((IMixinContainer) container).setLastCraft(event);
     }
 }

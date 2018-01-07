@@ -25,6 +25,7 @@
 package org.spongepowered.common.interfaces;
 
 import net.minecraft.entity.player.EntityPlayer;
+import org.spongepowered.api.event.item.inventory.CraftItemEvent;
 import org.spongepowered.api.item.inventory.Slot;
 import org.spongepowered.api.item.inventory.transaction.SlotTransaction;
 import org.spongepowered.api.plugin.PluginContainer;
@@ -50,9 +51,8 @@ public interface IMixinContainer extends IMixinInventory {
 
     void setPlugin(PluginContainer plugin);
 
-    List<SlotTransaction> getCapturedCraftTransactions();
+    void setShiftCrafting(boolean flag);
+    boolean isShiftCrafting();
 
-    void setCaptureCraftInventory(boolean flag);
-    boolean isCaptureCraftInventory();
-
+    void setLastCraft(CraftItemEvent.Craft event);
 }

@@ -41,7 +41,9 @@ import net.minecraft.item.crafting.IRecipe;
 import net.minecraft.util.NonNullList;
 import net.minecraft.world.World;
 import net.minecraft.world.WorldServer;
+import org.spongepowered.api.data.Transaction;
 import org.spongepowered.api.entity.Entity;
+import org.spongepowered.api.event.item.inventory.CraftItemEvent;
 import org.spongepowered.api.item.inventory.Carrier;
 import org.spongepowered.api.item.inventory.InventoryArchetype;
 import org.spongepowered.api.item.inventory.ItemStackSnapshot;
@@ -98,6 +100,8 @@ public abstract class MixinContainer implements org.spongepowered.api.item.inven
     @Shadow protected List<IContainerListener> listeners;
     private boolean spectatorChest;
     private boolean dirty = true;
+    private boolean crafting = false;
+    @Nullable private CraftItemEvent.Craft lastCraft = null;
 
     @Shadow
     public abstract NonNullList<ItemStack> getInventory();
@@ -116,7 +120,8 @@ public abstract class MixinContainer implements org.spongepowered.api.item.inven
     private boolean shiftCraft = false;
     //private boolean postPreCraftEvent = true; // used to prevent multiple craft events to fire when setting multiple slots simultaneously
     private List<SlotTransaction> capturedSlotTransactions = new ArrayList<>();
-    private List<SlotTransaction> capturedCraftSlotTransactions = new ArrayList<>();
+    private List<SlotTransaction> capturedCraftShiftTransactions = new ArrayList<>();
+    private List<SlotTransaction> capturedCraftPreviewTransactions = new ArrayList<>();
     private Fabric<IInventory> fabric;
     private SlotProvider<IInventory, ItemStack> slots;
     private Lens<IInventory, ItemStack> lens;
@@ -211,7 +216,7 @@ public abstract class MixinContainer implements org.spongepowered.api.item.inven
                     try {
                         adapter = this.getContainerSlot(i);
                         if (this.shiftCraft) {
-                            this.capturedCraftSlotTransactions.add(new SlotTransaction(adapter, originalItem, newItem));
+                            this.capturedCraftShiftTransactions.add(new SlotTransaction(adapter, originalItem, newItem));
                         } else {
                             this.capturedSlotTransactions.add(new SlotTransaction(adapter, originalItem, newItem));
                         }
@@ -264,49 +269,52 @@ public abstract class MixinContainer implements org.spongepowered.api.item.inven
             at = @At(value = "INVOKE", target = "Lnet/minecraft/inventory/InventoryCraftResult;setInventorySlotContents(ILnet/minecraft/item/ItemStack;)V"))
     private void beforeSlotChangedCraftingGrid(InventoryCraftResult output, int index, ItemStack itemstack)
     {
-        this.capturedSlotTransactions.clear();
+        this.capturedCraftPreviewTransactions.clear();
         this.detectAndSendChanges(true);
+
         ItemStackSnapshot orig = ItemStackUtil.snapshotOf(output.getStackInSlot(index));
         output.setInventorySlotContents(index, itemstack);
         ItemStackSnapshot repl = ItemStackUtil.snapshotOf(output.getStackInSlot(index));
-        if (!orig.equals(repl)) {
-            //if (this.postPreCraftEvent)
-            {
-                SlotAdapter slot = this.adapters.get(index);
-                this.capturedSlotTransactions.add(new SlotTransaction(slot, orig, repl));
-            }
-        }
+
+        SlotAdapter slot = this.adapters.get(index);
+        this.capturedCraftPreviewTransactions.add(new SlotTransaction(slot, orig, repl));
     }
 
     @Inject(method = "slotChangedCraftingGrid", cancellable = true,
             at = @At(value = "INVOKE", target = "Lnet/minecraft/network/NetHandlerPlayServer;sendPacket(Lnet/minecraft/network/Packet;)V"))
     private void afterSlotChangedCraftingGrid(World world, EntityPlayer player, InventoryCrafting craftingInventory, InventoryCraftResult output, CallbackInfo ci)
     {
-        //this.postPreCraftEvent &&
-        if (!this.capturedSlotTransactions.isEmpty()) {
+        if (!this.capturedCraftPreviewTransactions.isEmpty()) {
             CraftingInventory inv = this.query(QueryOperationTypes.INVENTORY_TYPE.of(CraftingInventory.class));
-            SlotTransaction previewTransaction = this.capturedSlotTransactions.get(this.capturedSlotTransactions.size() - 1);
+            SlotTransaction previewTransaction = this.capturedCraftPreviewTransactions.get(this.capturedCraftPreviewTransactions.size() - 1);
 
             IRecipe recipe = CraftingManager.findMatchingRecipe(craftingInventory, world);
             SpongeCommonEventFactory.callCraftEventPre(player, inv, previewTransaction, ((CraftingRecipe) recipe),
-                    ((Container)(Object) this), this.capturedSlotTransactions);
-            this.capturedSlotTransactions.clear();
+                    ((Container)(Object) this), this.capturedCraftPreviewTransactions);
+            this.capturedCraftPreviewTransactions.clear();
         }
     }
 
     @Redirect(method = "slotClick",
             at = @At(value = "INVOKE", target = "Lnet/minecraft/inventory/Slot;onTake(Lnet/minecraft/entity/player/EntityPlayer;Lnet/minecraft/item/ItemStack;)Lnet/minecraft/item/ItemStack;", ordinal = 0))
     private ItemStack redirectOnTakeClick(Slot slot, EntityPlayer player, ItemStack stackOnCursor) {
-        if (slot instanceof SlotCrafting) {
-            // When taking items out of SlotCrafting disable CraftItemEvent.Pre and instead capture all changes for CraftItemEvent.Post
-            this.detectAndSendChanges(true);
-            //this.postPreCraftEvent = false;
-            ItemStack result = slot.onTake(player, stackOnCursor);
-            player.inventory.setItemStack(result); // Set crafted item on cursor in case event changed it
-            //this.postPreCraftEvent = true;
-            return result;
+        if (!(slot instanceof SlotCrafting)) {
+            return slot.onTake(player, stackOnCursor);
         }
-        return slot.onTake(player, stackOnCursor);
+        this.lastCraft = null;
+
+        ItemStack result = slot.onTake(player, stackOnCursor);
+
+        if (lastCraft != null) {
+            if (this.lastCraft.isCancelled() || !this.lastCraft.getCrafted().isValid()) {
+                player.inventory.setItemStack(ItemStack.EMPTY); // revert cursor
+            }
+            else if (this.lastCraft.getCrafted().getCustom().isPresent()) {
+                ItemStack finalStack = (ItemStack) this.lastCraft.getCrafted().getFinal().createStack();
+                player.inventory.setItemStack(finalStack);
+            }
+        }
+        return result;
     }
 
     private ItemStack previousCursor;
@@ -322,30 +330,35 @@ public abstract class MixinContainer implements org.spongepowered.api.item.inven
     @Redirect(method = "slotClick",
             at = @At(value = "INVOKE", target = "Lnet/minecraft/inventory/Slot;onTake(Lnet/minecraft/entity/player/EntityPlayer;Lnet/minecraft/item/ItemStack;)Lnet/minecraft/item/ItemStack;", ordinal = 1))
     private ItemStack redirectOnTakeClickWithItem(Slot slot, EntityPlayer player, ItemStack stackOnCursor) {
-        if (slot instanceof SlotCrafting) {
-            // When taking items out of SlotCrafting disable CraftItemEvent.Pre and instead capture all changes for CraftItemEvent.Post
-            this.detectAndSendChanges(true);
-            //this.postPreCraftEvent = false;
-            ItemStack result = slot.onTake(player, stackOnCursor);
-            if (isSameStack(result, this.previousCursor)) {
-                this.previousCursor = result.copy();
-            } else {
-                player.dropItem(result.copy(), true);
-                // TODO @gabizou I might need help with this tracking stuff this is not causing events
-                PhaseTracker.getInstance().getCurrentContext().getCapturedItemStackSupplier().acceptAndClearIfNotEmpty(
-                        l -> l.forEach(d -> {
-                            EntityItem item = d.create(((WorldServer) player.world));
-                            ((Entity) item).setCreator(player.getUniqueID());
-                            EntityUtil.getMixinWorld(item).forceSpawnEntity(item);
-                        })
-                );
-
-            }
-            player.inventory.setItemStack(this.previousCursor); // Set crafted item on cursor in case event changed it
-            //this.postPreCraftEvent = true;
-            return result;
+        if (!(slot instanceof SlotCrafting)) {
+            return slot.onTake(player, stackOnCursor);
         }
-        return slot.onTake(player, stackOnCursor);
+        this.lastCraft = null;
+        ItemStack result = slot.onTake(player, stackOnCursor);
+
+        if (lastCraft != null) {
+            if (this.lastCraft.isCancelled() || !this.lastCraft.getCrafted().isValid()) {
+                player.inventory.setItemStack(this.previousCursor); // revert cursor
+            }
+            else if (this.lastCraft.getCrafted().getCustom().isPresent()) {
+                ItemStack finalStack = (ItemStack) this.lastCraft.getCrafted().getFinal().createStack();
+                if (isSameStack(finalStack, this.previousCursor)) { // Can we fill up the existing stack
+                    player.inventory.setItemStack(finalStack);
+                } else { // incompatible stack - drop it instead
+                    player.dropItem(finalStack.copy(), true);
+                    // TODO @gabizou I might need help with this tracking stuff this is not causing events
+                    PhaseTracker.getInstance().getCurrentContext().getCapturedItemStackSupplier().acceptAndClearIfNotEmpty(
+                            l -> l.forEach(d -> {
+                                EntityItem item = d.create(((WorldServer) player.world));
+                                ((Entity) item).setCreator(player.getUniqueID());
+                                EntityUtil.getMixinWorld(item).forceSpawnEntity(item);
+                            })
+                    );
+                }
+            }
+        }
+
+        return result;
     }
 
     // Copied from Inventory Player
@@ -363,38 +376,66 @@ public abstract class MixinContainer implements org.spongepowered.api.item.inven
     @Redirect(method = "slotClick",
             at = @At(value = "INVOKE", target = "Lnet/minecraft/inventory/Slot;onTake(Lnet/minecraft/entity/player/EntityPlayer;Lnet/minecraft/item/ItemStack;)Lnet/minecraft/item/ItemStack;", ordinal = 5))
     private ItemStack redirectOnTakeThrow(Slot slot, EntityPlayer player, ItemStack stackOnCursor) {
-        if (slot instanceof SlotCrafting) {
-            // When taking items out of SlotCrafting disable CraftItemEvent.Pre and instead capture all changes for CraftItemEvent.Post
-            //this.postPreCraftEvent = false;
-            ItemStack result = slot.onTake(player, stackOnCursor);
-            //this.postPreCraftEvent = true;
-
-            player.dropItem(result, true);
-            stackOnCursor.setCount(0);
-
-            return result;
+        this.lastCraft = null;
+        ItemStack result = slot.onTake(player, stackOnCursor);
+        if (lastCraft != null) {
+            if (slot instanceof SlotCrafting) {
+                if (this.lastCraft.isCancelled() || !this.lastCraft.getCrafted().isValid()) {
+                    stackOnCursor.setCount(0); // don't craft
+                }
+                else if (this.lastCraft.getCrafted().getCustom().isPresent()) {
+                    player.dropItem(((ItemStack) this.lastCraft.getCrafted().getFinal().createStack()), true);
+                    stackOnCursor.setCount(0); // we handled dropping already
+                }
+            }
         }
-        return slot.onTake(player, stackOnCursor);
+        return result;
     }
 
     @Redirect(method = "slotClick",
         at = @At(value = "INVOKE", target = "Lnet/minecraft/inventory/Container;transferStackInSlot(Lnet/minecraft/entity/player/EntityPlayer;I)Lnet/minecraft/item/ItemStack;"))
     private ItemStack redirectTransferStackInSlot(Container thisContainer, EntityPlayer player, int slotId) {
-        //this.postPreCraftEvent = false;
+        this.lastCraft = null;
         this.shiftCraft = true;
         ItemStack result = thisContainer.transferStackInSlot(player, slotId);
-        //this.postPreCraftEvent = true;
+        if (lastCraft != null) {
+
+            if (this.lastCraft.isCancelled() || !this.lastCraft.getCrafted().isValid()) {
+                result = ItemStack.EMPTY;
+            }
+            else if (this.lastCraft.getCrafted().getCustom().isPresent()) {
+                List<SlotTransaction> trans = new ArrayList<>(this.capturedCraftShiftTransactions);
+                this.capturedCraftShiftTransactions.clear();
+                SpongeCommonEventFactory.setSlots(trans, Transaction::getOriginal);
+                System.out.println("CraftTrans " + trans.size());
+                ItemStackSnapshot finalCrafted = this.lastCraft.getCrafted().getFinal();
+                if (!player.inventory.addItemStackToInventory(((ItemStack) finalCrafted.createStack()))) {
+                    // if not enough place - drop the items instead
+                    player.dropItem(((ItemStack) finalCrafted), true);
+                }
+                this.captureInventory = false;
+                this.detectAndSendChanges(false);
+                this.captureInventory = true;
+            }
+        }
         this.shiftCraft = false;
+
         return result;
     }
 
     @Redirect(method = "slotClick",
             at = @At(value = "INVOKE", target = "Lnet/minecraft/inventory/Slot;onTake(Lnet/minecraft/entity/player/EntityPlayer;Lnet/minecraft/item/ItemStack;)Lnet/minecraft/item/ItemStack;", ordinal = 2))
     private ItemStack redirectOnTakeSwap(Slot slot, EntityPlayer player, ItemStack stack, int slotId, int dragType, ClickType clickTypeIn, EntityPlayer player2) {
-        //this.postPreCraftEvent = false;
+        this.lastCraft = null;
         ItemStack result = slot.onTake(player, stack);
-        player.inventory.setInventorySlotContents(dragType, result);
-        //this.postPreCraftEvent = true;
+
+        if (this.lastCraft.isCancelled() || !this.lastCraft.getCrafted().isValid()) {
+            player.inventory.setInventorySlotContents(dragType, ItemStack.EMPTY);
+        }
+        else if (this.lastCraft.getCrafted().getCustom().isPresent()) {
+            player.inventory.setInventorySlotContents(dragType, ((ItemStack) this.lastCraft.getCrafted().getFinal().createStack()));
+        }
+
         return result;
     }
 
@@ -419,17 +460,17 @@ public abstract class MixinContainer implements org.spongepowered.api.item.inven
     }
 
     @Override
-    public List<SlotTransaction> getCapturedCraftTransactions() {
-        return this.capturedCraftSlotTransactions;
+    public void setLastCraft(CraftItemEvent.Craft event) {
+        this.lastCraft = event;
     }
 
     @Override
-    public void setCaptureCraftInventory(boolean flag) {
+    public void setShiftCrafting(boolean flag) {
         this.shiftCraft = flag;
     }
 
     @Override
-    public boolean isCaptureCraftInventory() {
+    public boolean isShiftCrafting() {
         return this.shiftCraft;
     }
 
