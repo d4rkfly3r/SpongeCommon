@@ -270,7 +270,6 @@ public abstract class MixinContainer implements org.spongepowered.api.item.inven
     private void beforeSlotChangedCraftingGrid(InventoryCraftResult output, int index, ItemStack itemstack)
     {
         this.capturedCraftPreviewTransactions.clear();
-        this.detectAndSendChanges(true);
 
         ItemStackSnapshot orig = ItemStackUtil.snapshotOf(output.getStackInSlot(index));
         output.setInventorySlotContents(index, itemstack);
@@ -407,7 +406,6 @@ public abstract class MixinContainer implements org.spongepowered.api.item.inven
                 List<SlotTransaction> trans = new ArrayList<>(this.capturedCraftShiftTransactions);
                 this.capturedCraftShiftTransactions.clear();
                 SpongeCommonEventFactory.setSlots(trans, Transaction::getOriginal);
-                System.out.println("CraftTrans " + trans.size());
                 ItemStackSnapshot finalCrafted = this.lastCraft.getCrafted().getFinal();
                 if (!player.inventory.addItemStackToInventory(((ItemStack) finalCrafted.createStack()))) {
                     // if not enough place - drop the items instead

@@ -53,7 +53,7 @@ import org.spongepowered.common.event.SpongeCommonEventFactory;
 import org.spongepowered.common.interfaces.IMixinContainer;
 import org.spongepowered.common.item.inventory.util.ItemStackUtil;
 
-import java.util.ArrayList;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Optional;
 
@@ -98,20 +98,24 @@ public abstract class MixinSlotCrafting extends Slot {
     private void afterTake(EntityPlayer thePlayer, ItemStack stack, CallbackInfoReturnable<ItemStack> cir) {
 
         ((IMixinContainer) thePlayer.openContainer).setCaptureInventory(false);
-        System.out.print(stack + " " + (this.lastRecipe == null ? "no recipe" : this.lastRecipe.getId() )  + "\n");
 
         Container container = thePlayer.openContainer;
         CraftingInventory crafting = ((Inventory) container).query(QueryOperationTypes.INVENTORY_TYPE.of(CraftingInventory.class));
 
+        // retain only last slot-transactions on output slot
+        SlotTransaction last = null;
         List<SlotTransaction> capturedTransactions = ((IMixinContainer) container).getCapturedTransactions();
-
-
-        System.out.print("In Post Capture " + capturedTransactions.size() + "\n");
-        for (SlotTransaction trans : capturedTransactions) {
-            Optional<SlotIndex> sp = trans.getSlot().getInventoryProperty(SlotIndex.class);
-            System.out.print(sp.map(s -> s.getValue().toString()).orElse("?") + "\t");
+        for (Iterator<SlotTransaction> iterator = capturedTransactions.iterator(); iterator.hasNext(); ) {
+            SlotTransaction trans = iterator.next();
+            Optional<SlotIndex> slotIndex = trans.getSlot().getInventoryProperty(SlotIndex.class);
+            if (slotIndex.isPresent() && slotIndex.get().getValue() == 0) {
+                iterator.remove();
+                last = trans;
+            }
         }
-        System.out.print("\n");
+        if (last != null) {
+            capturedTransactions.add(last);
+        }
 
         CraftItemEvent.Craft event = SpongeCommonEventFactory.callCraftEventPost(thePlayer, crafting,
                 new Transaction<>(ItemStackSnapshot.NONE, ItemStackUtil.snapshotOf(stack)), this.lastRecipe, container, capturedTransactions);
