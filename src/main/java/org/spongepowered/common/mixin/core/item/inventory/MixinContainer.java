@@ -26,6 +26,7 @@ package org.spongepowered.common.mixin.core.item.inventory;
 
 import net.minecraft.entity.item.EntityItem;
 import net.minecraft.entity.player.EntityPlayer;
+import net.minecraft.entity.player.EntityPlayerMP;
 import net.minecraft.entity.player.InventoryPlayer;
 import net.minecraft.inventory.ClickType;
 import net.minecraft.inventory.Container;
@@ -38,6 +39,7 @@ import net.minecraft.inventory.SlotCrafting;
 import net.minecraft.item.ItemStack;
 import net.minecraft.item.crafting.CraftingManager;
 import net.minecraft.item.crafting.IRecipe;
+import net.minecraft.network.play.server.SPacketSetSlot;
 import net.minecraft.util.NonNullList;
 import net.minecraft.world.World;
 import net.minecraft.world.WorldServer;
@@ -45,6 +47,7 @@ import org.spongepowered.api.data.Transaction;
 import org.spongepowered.api.entity.Entity;
 import org.spongepowered.api.event.item.inventory.CraftItemEvent;
 import org.spongepowered.api.item.inventory.Carrier;
+import org.spongepowered.api.item.inventory.Inventory;
 import org.spongepowered.api.item.inventory.InventoryArchetype;
 import org.spongepowered.api.item.inventory.ItemStackSnapshot;
 import org.spongepowered.api.item.inventory.crafting.CraftingInventory;
@@ -269,6 +272,7 @@ public abstract class MixinContainer implements org.spongepowered.api.item.inven
             at = @At(value = "INVOKE", target = "Lnet/minecraft/inventory/InventoryCraftResult;setInventorySlotContents(ILnet/minecraft/item/ItemStack;)V"))
     private void beforeSlotChangedCraftingGrid(InventoryCraftResult output, int index, ItemStack itemstack)
     {
+        this.init();
         this.capturedCraftPreviewTransactions.clear();
 
         ItemStackSnapshot orig = ItemStackUtil.snapshotOf(output.getStackInSlot(index));
@@ -284,11 +288,15 @@ public abstract class MixinContainer implements org.spongepowered.api.item.inven
     private void afterSlotChangedCraftingGrid(World world, EntityPlayer player, InventoryCrafting craftingInventory, InventoryCraftResult output, CallbackInfo ci)
     {
         if (!this.capturedCraftPreviewTransactions.isEmpty()) {
-            CraftingInventory inv = this.query(QueryOperationTypes.INVENTORY_TYPE.of(CraftingInventory.class));
+            Inventory inv = this.query(QueryOperationTypes.INVENTORY_TYPE.of(CraftingInventory.class));
+            if (!(inv instanceof CraftingInventory)) {
+                SpongeImpl.getLogger().warn("Detected crafting but Sponge could not get a CraftingInventory for " + this.getClass().getName());
+                return;
+            }
             SlotTransaction previewTransaction = this.capturedCraftPreviewTransactions.get(this.capturedCraftPreviewTransactions.size() - 1);
 
             IRecipe recipe = CraftingManager.findMatchingRecipe(craftingInventory, world);
-            SpongeCommonEventFactory.callCraftEventPre(player, inv, previewTransaction, ((CraftingRecipe) recipe),
+            SpongeCommonEventFactory.callCraftEventPre(player, ((CraftingInventory) inv), previewTransaction, ((CraftingRecipe) recipe),
                     ((Container)(Object) this), this.capturedCraftPreviewTransactions);
             this.capturedCraftPreviewTransactions.clear();
         }
@@ -311,6 +319,9 @@ public abstract class MixinContainer implements org.spongepowered.api.item.inven
             else if (this.lastCraft.getCrafted().getCustom().isPresent()) {
                 ItemStack finalStack = (ItemStack) this.lastCraft.getCrafted().getFinal().createStack();
                 player.inventory.setItemStack(finalStack);
+            }
+            if (player instanceof EntityPlayerMP) {
+                ((EntityPlayerMP) player).connection.sendPacket(new SPacketSetSlot(-1, -1, player.inventory.getItemStack()));
             }
         }
         return result;
@@ -354,6 +365,9 @@ public abstract class MixinContainer implements org.spongepowered.api.item.inven
                             })
                     );
                 }
+            }
+            if (player instanceof EntityPlayerMP) {
+                ((EntityPlayerMP) player).connection.sendPacket(new SPacketSetSlot(-1, -1, player.inventory.getItemStack()));
             }
         }
 

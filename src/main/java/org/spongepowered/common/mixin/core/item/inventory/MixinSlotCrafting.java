@@ -97,6 +97,9 @@ public abstract class MixinSlotCrafting extends Slot {
     @Inject(method = "onTake", cancellable = true, at = @At("RETURN"))
     private void afterTake(EntityPlayer thePlayer, ItemStack stack, CallbackInfoReturnable<ItemStack> cir) {
 
+        if (thePlayer.world.isRemote) {
+            return;
+        }
         ((IMixinContainer) thePlayer.openContainer).setCaptureInventory(false);
 
         Container container = thePlayer.openContainer;

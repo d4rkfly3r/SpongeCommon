@@ -1101,16 +1101,19 @@ public class SpongeCommonEventFactory {
                 .createCraftItemEventPreview(Sponge.getCauseStackManager().getCurrentCause(), inventory, previewTransaction, Optional.ofNullable(recipe), ((Inventory) container), transactions);
         SpongeImpl.postEvent(event);
         PacketPhaseUtil.handleSlotRestore(player, container, new ArrayList<>(transactions), event.isCancelled());
+        if (player instanceof EntityPlayerMP) {
+            ((EntityPlayerMP) player).connection.sendPacket(new SPacketSetSlot(0, 0, ItemStackUtil.fromSnapshotToNative(event.getPreview().getFinal())));
+        }
         return event;
     }
 
-    public static CraftItemEvent.Craft callCraftEventPost(EntityPlayer layer, CraftingInventory inventory, Transaction<ItemStackSnapshot> result,
+    public static CraftItemEvent.Craft callCraftEventPost(EntityPlayer player, CraftingInventory inventory, Transaction<ItemStackSnapshot> result,
            @Nullable CraftingRecipe recipe, Container container, List<SlotTransaction> transactions) {
         CraftItemEvent.Craft event = SpongeEventFactory
                 .createCraftItemEventCraft(Sponge.getCauseStackManager().getCurrentCause(), result, inventory, Optional.ofNullable(recipe), ((Inventory) container), transactions);
              SpongeImpl.postEvent(event);
         ((IMixinContainer) container).setCaptureInventory(false);
-        PacketPhaseUtil.handleSlotRestore(layer, container, new ArrayList<>(transactions), event.isCancelled());
+        PacketPhaseUtil.handleSlotRestore(player, container, new ArrayList<>(transactions), event.isCancelled());
         transactions.clear();
         ((IMixinContainer) container).setCaptureInventory(true);
         return event;
