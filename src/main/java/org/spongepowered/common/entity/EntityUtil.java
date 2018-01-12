@@ -191,7 +191,7 @@ public final class EntityUtil {
      * A relative copy paste of {@link EntityPlayerMP#changeDimension(int)} where instead we direct all processing
      * to the appropriate areas for throwing events and capturing world changes during the transfer.
      *
-     * @param mixinEntityPlayerMP The player being teleported
+     * @param entityPlayerMP The player being teleported
      * @param suggestedDimensionId The suggested dimension
      * @return The player object, not re-created
      */
@@ -898,13 +898,16 @@ public final class EntityUtil {
     }
 
     /**
-     * A simple redirected static util method for {@link Entity#entityDropItem(ItemStack, float)}
-     * for easy debugging.
-     * @param entity
-     * @param itemStack
-     * @param offsetY
-     * @return
+     * A simple redirected static util method for {@link Entity#entityDropItem(ItemStack, float)}.
+     * What this does is ensures that any possibly required wrapping of captured drops is performed.
+     * Likewise, it ensures that the phase state is set up appropriately.
+     *
+     * @param entity The entity dropping the item
+     * @param itemStack The itemstack to spawn
+     * @param offsetY The offset y coordinate
+     * @return The item entity
      */
+    @Nullable
     public static EntityItem entityOnDropItem(Entity entity, ItemStack itemStack, float offsetY) {
         final IMixinEntity mixinEntity = EntityUtil.toMixin(entity);
 
@@ -936,16 +939,12 @@ public final class EntityUtil {
                     .createConstructEntityEventPre(Sponge.getCauseStackManager().getCurrentCause(), EntityTypes.ITEM, suggested);
             SpongeImpl.postEvent(event);
             item = event.isCancelled() ? null : ItemStackUtil.fromSnapshotToNative(dropEvent.getDroppedItems().get(0));
-            if (item == null) {
+            if (item == null || item.isEmpty()) {
                 return null;
             }
             final PhaseData peek = PhaseTracker.getInstance().getCurrentPhaseData();
             final IPhaseState currentState = peek.state;
             final PhaseContext<?> phaseContext = peek.context;
-    
-            if (item.isEmpty()) {
-                return null;
-            }
     
             if (!currentState.ignoresItemPreMerging() && SpongeImpl.getGlobalConfig().getConfig().getOptimizations().doDropsPreMergeItemDrops()) {
                 if (currentState.tracksEntitySpecificDrops()) {
@@ -966,15 +965,7 @@ public final class EntityUtil {
             entityitem.setDefaultPickupDelay();
     
             // FIFTH - Capture the entity maybe?
-            if (currentState.doesCaptureEntityDrops()) {
-                if (currentState.tracksEntitySpecificDrops()) {
-                    // We are capturing per entity drop
-                    phaseContext.getCapturedEntityItemDropSupplier().get().put(entity.getUniqueID(), entityitem);
-                } else {
-                    // We are adding to a general list - usually for EntityPhase.State.DEATH
-                    phaseContext.getCapturedItemsSupplier().get().add(entityitem);
-                }
-                // Return the item, even if it wasn't spawned in the world.
+            if (captureEntityItem(currentState, phaseContext, entityitem, entity)) {
                 return entityitem;
             }
             // FINALLY - Spawn the entity in the world if all else didn't fail
@@ -1063,15 +1054,7 @@ public final class EntityUtil {
                 entityitem.motionZ += Math.sin(f3) * f2;
             }
             // FIFTH - Capture the entity maybe?
-            if (currentState.doesCaptureEntityDrops()) {
-                if (currentState.tracksEntitySpecificDrops()) {
-                    // We are capturing per entity drop
-                    phaseContext.getCapturedEntityItemDropSupplier().get().put(player.getUniqueID(), entityitem);
-                } else {
-                    // We are adding to a general list - usually for EntityPhase.State.DEATH
-                    phaseContext.getCapturedItemsSupplier().get().add(entityitem);
-                }
-                // Return the item, even if it wasn't spawned in the world.
+            if (captureEntityItem(currentState, phaseContext, entityitem, player)) {
                 return entityitem;
             }
             ItemStack itemstack = dropItemAndGetStack(player, entityitem);
@@ -1086,6 +1069,32 @@ public final class EntityUtil {
     
             return entityitem;
         }
+    }
+
+    /**
+     * Captures the item based on the current state.
+     *
+     * @param currentState The current state
+     * @param phaseContext The phase context
+     * @param entityitem The item entity to capture
+     * @param owner The owning entity
+     * @return Whether the drop is being captured
+     */
+    private static boolean captureEntityItem(IPhaseState currentState, PhaseContext<?> phaseContext, EntityItem entityitem, Entity owner) {
+        if (currentState.doesCaptureEntityDrops()) {
+            if (currentState.tracksEntitySpecificDrops()) {
+                // We are capturing per entity drop
+                // This is overridden in forge to utilize forge's capture lists as well
+                // (sets up the multimap list to the entity)
+                SpongeImplHooks.capturePerEntityItemDrop(phaseContext, owner, entityitem);
+            } else {
+                // We are adding to a general list - usually for EntityPhase.State.DEATH
+                phaseContext.getCapturedItemsSupplier().get().add(entityitem);
+            }
+            // Return the item, even if it wasn't spawned in the world.
+            return true;
+        }
+        return false;
     }
 
     private static Vector3d createDropMotion(boolean dropAround, EntityPlayer player, Random random) {
@@ -1114,11 +1123,8 @@ public final class EntityUtil {
 
     private static ItemStack dropItemAndGetStack(EntityPlayer player, EntityItem item) {
         final ItemStack stack = item.getItem();
-        if (stack != null) {
-            player.world.spawnEntity(item);
-            return stack;
-        }
-        return null;
+        player.world.spawnEntity(item);
+        return stack;
     }
 
     @SuppressWarnings("unchecked")
