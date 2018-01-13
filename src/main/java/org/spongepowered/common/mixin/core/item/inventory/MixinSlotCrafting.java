@@ -103,7 +103,7 @@ public abstract class MixinSlotCrafting extends Slot {
         ((IMixinContainer) thePlayer.openContainer).setCaptureInventory(false);
 
         Container container = thePlayer.openContainer;
-        CraftingInventory crafting = ((Inventory) container).query(QueryOperationTypes.INVENTORY_TYPE.of(CraftingInventory.class));
+        CraftingInventory craftInv = ((Inventory) container).query(QueryOperationTypes.INVENTORY_TYPE.of(CraftingInventory.class));
 
         // retain only last slot-transactions on output slot
         SlotTransaction last = null;
@@ -116,12 +116,17 @@ public abstract class MixinSlotCrafting extends Slot {
                 last = trans;
             }
         }
+
+        ItemStackSnapshot craftedItem;
         if (last != null) {
             capturedTransactions.add(last);
+            craftedItem = last.getOriginal().copy();
+        } else {
+            craftedItem = ItemStackUtil.snapshotOf(this.getStack());
         }
 
-        CraftItemEvent.Craft event = SpongeCommonEventFactory.callCraftEventPost(thePlayer, crafting,
-                new Transaction<>(ItemStackSnapshot.NONE, ItemStackUtil.snapshotOf(stack)), this.lastRecipe, container, capturedTransactions);
+        CraftItemEvent.Craft event = SpongeCommonEventFactory.callCraftEventPost(thePlayer, craftInv,
+                craftedItem, this.lastRecipe, container, capturedTransactions);
 
         ((IMixinContainer) container).setLastCraft(event);
     }

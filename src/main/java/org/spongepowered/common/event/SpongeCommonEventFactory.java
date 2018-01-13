@@ -1102,18 +1102,44 @@ public class SpongeCommonEventFactory {
         SpongeImpl.postEvent(event);
         PacketPhaseUtil.handleSlotRestore(player, container, new ArrayList<>(transactions), event.isCancelled());
         if (player instanceof EntityPlayerMP) {
-            ((EntityPlayerMP) player).connection.sendPacket(new SPacketSetSlot(0, 0, ItemStackUtil.fromSnapshotToNative(event.getPreview().getFinal())));
+            if (event.getPreview().getCustom().isPresent() || event.isCancelled() || !event.getPreview().isValid()) {
+                ItemStackSnapshot stack = event.getPreview().getFinal();
+                if (event.isCancelled() || !event.getPreview().isValid()) {
+                    stack = event.getPreview().getOriginal();
+                }
+                // Resend modified output
+                ((EntityPlayerMP) player).connection.sendPacket(new SPacketSetSlot(0, 0, ItemStackUtil.fromSnapshotToNative(stack)));
+            }
+
         }
         return event;
     }
 
-    public static CraftItemEvent.Craft callCraftEventPost(EntityPlayer player, CraftingInventory inventory, Transaction<ItemStackSnapshot> result,
+    public static CraftItemEvent.Craft callCraftEventPost(EntityPlayer player, CraftingInventory inventory, ItemStackSnapshot result,
            @Nullable CraftingRecipe recipe, Container container, List<SlotTransaction> transactions) {
+        // Get previous cursor if captured
+        ItemStack previousCursor = ((IMixinContainer) container).getPreviousCursor();
+        if (previousCursor == null) {
+            previousCursor = player.inventory.getItemStack(); // or get the current one
+        }
+        Transaction<ItemStackSnapshot> cursorTransaction = new Transaction<>(ItemStackUtil.snapshotOf(previousCursor), ItemStackUtil.snapshotOf(player.inventory.getItemStack()));
         CraftItemEvent.Craft event = SpongeEventFactory
-                .createCraftItemEventCraft(Sponge.getCauseStackManager().getCurrentCause(), result, inventory, Optional.ofNullable(recipe), ((Inventory) container), transactions);
-             SpongeImpl.postEvent(event);
+                .createCraftItemEventCraft(Sponge.getCauseStackManager().getCurrentCause(), result, inventory,
+                        cursorTransaction, Optional.ofNullable(recipe), ((org.spongepowered.api.item.inventory.Container) container), transactions);
+        SpongeImpl.postEvent(event);
+
         ((IMixinContainer) container).setCaptureInventory(false);
+        // handle slot-transactions
         PacketPhaseUtil.handleSlotRestore(player, container, new ArrayList<>(transactions), event.isCancelled());
+        if (event.isCancelled() || !event.getCursorTransaction().isValid() || event.getCursorTransaction().getCustom().isPresent()) {
+            // handle cursor-transaction
+            ItemStackSnapshot newCursor = event.isCancelled() || event.getCursorTransaction().isValid() ? event.getCursorTransaction().getOriginal() : event.getCursorTransaction().getFinal();
+            player.inventory.setItemStack(ItemStackUtil.fromSnapshotToNative(newCursor));
+            if (player instanceof EntityPlayerMP) {
+                ((EntityPlayerMP) player).connection.sendPacket(new SPacketSetSlot(-1, -1, player.inventory.getItemStack()));
+            }
+        }
+
         transactions.clear();
         ((IMixinContainer) container).setCaptureInventory(true);
         return event;
