@@ -266,6 +266,11 @@ public abstract class MixinContainer implements org.spongepowered.api.item.inven
             at = @At(value = "INVOKE", target = "Lnet/minecraft/inventory/InventoryCraftResult;setInventorySlotContents(ILnet/minecraft/item/ItemStack;)V"))
     private void beforeSlotChangedCraftingGrid(InventoryCraftResult output, int index, ItemStack itemstack)
     {
+        if (!this.captureInventory) {
+            // Capture Inventory is true when caused by a vanilla inventory packet
+            // This is to prevent infinite loops when a client mod re-requests the recipe result after we modified/cancelled it
+            return;
+        }
         this.init();
         this.capturedCraftPreviewTransactions.clear();
 

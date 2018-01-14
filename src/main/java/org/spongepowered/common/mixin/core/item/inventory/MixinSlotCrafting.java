@@ -90,10 +90,9 @@ public abstract class MixinSlotCrafting extends Slot {
     }
 
     /**
-     * Create CraftItemEvent.Post result is either handled by
-     * {@link MixinContainer#redirectOnTakeClick},
-     * {@link MixinContainer#redirectOnTakeThrow} or
-     * at the bottom of this method restoring the captured craftTransactions
+     * Create CraftItemEvent.Post result is also handled by
+     * {@link MixinContainer#redirectTransferStackInSlot} or
+     * {@link MixinContainer#redirectOnTakeThrow}
      */
     @Inject(method = "onTake", cancellable = true, at = @At("RETURN"))
     private void afterTake(EntityPlayer thePlayer, ItemStack stack, CallbackInfoReturnable<ItemStack> cir) {
